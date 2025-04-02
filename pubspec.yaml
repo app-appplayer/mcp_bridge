@@ -8,7 +8,6 @@ issue_tracker: https://github.com/app-appplayer/mcp_bridge/issues
 environment:
   sdk: ^3.7.2
 
-# Add regular dependencies here.
 dependencies:
   args: ^2.4.0
   mcp_client: ^0.1.6
