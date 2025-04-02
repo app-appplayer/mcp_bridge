@@ -1,7 +1,9 @@
 name: mcp_bridge
-description: A starting point for Dart libraries or applications.
+description: Dart plugin for implementing Model Context Protocol (MCP) bridge. Provides tools to build MCP bridge that can expose data, functionality, and interaction patterns to LLM applications.
 version: 0.1.0
-# repository: https://github.com/my_org/my_repo
+homepage: https://github.com/app-appplayer/mcp_bridge
+repository: https://github.com/app-appplayer/mcp_bridge
+issue_tracker: https://github.com/app-appplayer/mcp_bridge/issues
 
 environment:
   sdk: ^3.7.2
