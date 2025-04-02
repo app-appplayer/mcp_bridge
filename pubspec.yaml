@@ -12,9 +12,7 @@ environment:
 dependencies:
   args: ^2.4.0
   mcp_client:
-    path: ../mcp_client
   mcp_server:
-    path: ../mcp_server
 
 dev_dependencies:
   lints: ^5.0.0

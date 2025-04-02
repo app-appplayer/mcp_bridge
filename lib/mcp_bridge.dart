@@ -95,10 +95,11 @@ class McpBridge {
   final McpBridgeConfig _config;
   final Logger _logger = Logger.getLogger('mcp_bridge');
 
+  final List<StreamSubscription> _subscriptions = [];
+
   server.ServerTransport? _serverTransport;
   client.ClientTransport? _clientTransport;
 
-  List<StreamSubscription> _subscriptions = [];
   bool _isInitialized = false;
   bool _isShuttingDown = false;
   bool _isServerActive = false;
