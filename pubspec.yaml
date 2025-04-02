@@ -11,8 +11,8 @@ environment:
 # Add regular dependencies here.
 dependencies:
   args: ^2.4.0
-  mcp_client:
-  mcp_server:
+  mcp_client: ^0.1.6
+  mcp_server: ^0.1.7
 
 dev_dependencies:
   lints: ^5.0.0
