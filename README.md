@@ -126,7 +126,7 @@ _logger.info('Bridge initialized');
 
 ## Examples
 
-See the [`example/`](https://github.com/app-appplayer/mcp_bridge/tree/main/example) folder for a full example including:
+See the [example](https://github.com/app-appplayer/mcp_bridge/tree/main/example) folder for a full example including:
 
 - Bridge setup using STDIO server and SSE client
 - Argument parsing with `args` package
@@ -141,6 +141,10 @@ See the [`example/`](https://github.com/app-appplayer/mcp_bridge/tree/main/examp
 
 - [`mcp_server`](https://pub.dev/packages/mcp_server): Build and expose an MCP-compatible server
 - [`mcp_client`](https://pub.dev/packages/mcp_client) (planned): Connect to any MCP-compliant server
+
+## Issues and Feedback
+
+Please file any issues, bugs, or feature requests in our [issue tracker](https://github.com/app-appplayer/mcp_client/issues).
 
 ## License
 
