@@ -1,17 +1,26 @@
 name: mcp_bridge
-description: Dart plugin for implementing Model Context Protocol (MCP) bridge. Provides tools to build MCP bridge that can expose data, functionality, and interaction patterns to LLM applications.
-version: 0.1.0
+description: MCP bridge with built-in transport zoo — bridges JSON-RPC between any two of stdio, sse, streamableHttp, websocket, tcp, serial, usb, ble. Aligned with the MCP 2.0 wave.
+version: 0.2.0-rc.1
 homepage: https://github.com/app-appplayer/mcp_bridge
 repository: https://github.com/app-appplayer/mcp_bridge
 issue_tracker: https://github.com/app-appplayer/mcp_bridge/issues
 
 environment:
-  sdk: ^3.7.2
+  sdk: ^3.11.0
 
 dependencies:
   args: ^2.4.0
-  mcp_client: ^0.1.6
-  mcp_server: ^0.1.7
+  meta: ^1.10.0
+  logging: ^1.2.0
+  mcp_client: ^2.0.0
+  mcp_server: ^2.0.0
+  # Hardware-transport FFI / D-Bus bindings (pure Dart).
+  # System-level deps (libserialport, libusb) installation documented
+  # in README. bluez ships pre-installed on most Linux distros.
+  clib_serialport_dart: ^1.1.0
+  dart_libusb: ^1.0.0
+  bluez: ^0.8.3
+  ffi: ^2.1.0
 
 dev_dependencies:
   lints: ^5.0.0

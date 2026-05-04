@@ -4,55 +4,34 @@ import 'dart:io';
 import 'package:args/args.dart';
 import 'package:mcp_bridge/mcp_bridge.dart';
 
-final Logger _logger = Logger.getLogger('test_bridge');
+final Logger _logger = Logger('test_bridge');
 
 late IOSink logSink;
 late File detailedLogFile;
 
-/// Main entry point for the MCP Bridge test application
+const _knownTypes = {
+  'stdio',
+  'sse',
+  'streamableHttp',
+  'websocket',
+  'tcp',
+  'serial',
+  'usb',
+  'ble',
+};
+
+/// Main entry point for the MCP Bridge test application.
+///
+/// Demonstrates wiring any of the 8 built-in transports on either side
+/// of the bridge via command-line flags. See `_printUsage` for examples.
 void main(List<String> arguments) async {
-  // Parse command-line arguments
-  final parser = ArgParser()
-    ..addOption('server-type',
-        abbr: 's',
-        help: 'Server transport type (stdio, sse)',
-        defaultsTo: 'stdio')
-    ..addOption('client-type',
-        abbr: 'c',
-        help: 'Client transport type (stdio, sse)',
-        defaultsTo: 'sse')
-    ..addOption('server-action',
-        help: 'Server shutdown action (shutdown, waitreconnect)',
-        defaultsTo: 'shutdown')
-    ..addOption('server-url', help: 'SSE server URL (required for sse client)',
-        defaultsTo: 'http://localhost:8999/sse')
-    ..addOption('auth-token',
-        help: 'Authentication token for SSE client/server connections',
-        defaultsTo: 'test_token')
-    ..addOption('command',
-        help: 'Command to execute (required for stdio client)')
-    ..addOption('arguments', help: 'Command arguments as comma-separated list')
-    ..addOption('working-dir', help: 'Working directory for stdio client')
-    ..addOption('port',
-        help: 'HTTP server port for SSE server', defaultsTo: '8999')
-    ..addOption('config-file', help: 'Configuration file path')
-  // Add logging related options
-    ..addOption('log-to-file',
-        help: 'Enable or disable logging to file',
-        defaultsTo: 'false') // Enable/disable file logging
-    ..addOption('log-dir',
-        help: 'Directory to store log files',
-        defaultsTo: null) // Log file storage directory
-    ..addFlag('verbose',
-        abbr: 'v', help: 'Enable verbose logging', negatable: false)
-    ..addFlag('help', abbr: 'h', help: 'Show help', negatable: false);
+  final parser = _buildArgParser();
 
   ArgResults results;
-
   try {
     results = parser.parse(arguments);
   } catch (e) {
-    logError('Argument parsing error: $e');
+    stderr.writeln('Argument parsing error: $e');
     _printUsage(parser);
     exit(1);
   }
@@ -61,29 +40,22 @@ void main(List<String> arguments) async {
     _printUsage(parser);
     exit(0);
   }
-  Logger.getLogger('mcp_bridge').setLevel(LogLevel.trace);
-  // Setup logging with command line options
-  final logToFileStr = results['log-to-file'] as String;
-  final logToFile = logToFileStr.toLowerCase() == 'true';
-  final String? logDirectory = results['log-dir'] as String?;
-  setupLogging(logToFile: logToFile, logDirectory: logDirectory);
 
-  // Set log level
+  // Setup logging.
+  final logToFile = (results['log-to-file'] as String).toLowerCase() == 'true';
+  final logDirectory = results['log-dir'] as String?;
+  setupLogging(logToFile: logToFile, logDirectory: logDirectory);
   if (results['verbose'] as bool) {
-    Logger.getLogger('mcp_bridge').setLevel(LogLevel.trace);
+    Logger('mcp_bridge').level = Level.FINEST;
   }
 
   try {
-    // Load from configuration file or create from command-line arguments
     McpBridgeConfig config;
     if (results['config-file'] != null) {
-      final configFilePath = results['config-file'] as String;
-      config = await _loadConfigFromFile(configFilePath);
+      config = await _loadConfigFromFile(results['config-file'] as String);
     } else {
       config = _createConfigFromArgs(results);
     }
-
-    // Create and initialize bridge
     await runBridge(config);
   } catch (e, stackTrace) {
     logError('Error occurred: $e');
@@ -92,89 +64,122 @@ void main(List<String> arguments) async {
   }
 }
 
+ArgParser _buildArgParser() => ArgParser()
+  ..addOption('server-type',
+      abbr: 's',
+      help: 'Server transport type: ${_knownTypes.join(", ")}',
+      defaultsTo: 'stdio')
+  ..addOption('client-type',
+      abbr: 'c',
+      help: 'Client transport type: ${_knownTypes.join(", ")}',
+      defaultsTo: 'sse')
+  ..addOption('server-action',
+      help: 'Server shutdown behavior (shutdown | waitreconnect)',
+      defaultsTo: 'shutdown')
+  ..addOption('config-file', help: 'JSON configuration file path')
+
+  // ---- HTTP-family transports (sse / streamableHttp / websocket) ----
+  ..addOption('listen-host',
+      help: 'Server-side bind host (sse / streamableHttp / websocket / tcp)',
+      defaultsTo: 'localhost')
+  ..addOption('listen-port',
+      help: 'Server-side bind port (sse / streamableHttp / websocket / tcp)',
+      defaultsTo: '8999')
+  ..addOption('target-url',
+      help: 'Client-side URL — sse: http://...; streamableHttp: http://...; '
+          'websocket: ws://...')
+  ..addOption('auth-token',
+      help: 'Bearer token for sse / streamableHttp / websocket')
+  ..addOption('ws-path',
+      help: 'WebSocket server path (server-side only)', defaultsTo: '/')
+
+  // ---- STDIO ----
+  ..addOption('command',
+      help: 'Subprocess to spawn (stdio client) — required if client-type=stdio')
+  ..addOption('arguments',
+      help: 'Comma-separated subprocess arguments')
+  ..addOption('working-dir', help: 'Subprocess working directory')
+
+  // ---- TCP ----
+  ..addOption('tcp-host', help: 'TCP client target host')
+  ..addOption('tcp-port', help: 'TCP client target port')
+
+  // ---- Serial ----
+  ..addOption('serial-port',
+      help: 'Serial device path (e.g. /dev/ttyACM0, /dev/cu.usbmodem*, COM3)')
+  ..addOption('serial-baud',
+      help: 'Serial baud rate', defaultsTo: '115200')
+
+  // ---- USB ----
+  ..addOption('usb-vendor',
+      help: 'USB vendor ID, hex with 0x prefix (e.g. 0x1234)')
+  ..addOption('usb-product', help: 'USB product ID, hex with 0x prefix')
+  ..addOption('usb-interface', help: 'USB interface number', defaultsTo: '0')
+  ..addOption('usb-in-endpoint',
+      help: 'USB bulk-in endpoint (e.g. 0x81)')
+  ..addOption('usb-out-endpoint',
+      help: 'USB bulk-out endpoint (e.g. 0x01)')
+
+  // ---- BLE (Linux only) ----
+  ..addOption('ble-address',
+      help: 'BLE peripheral address (AA:BB:CC:DD:EE:FF)')
+  ..addOption('ble-service-uuid',
+      help: 'BLE GATT service UUID carrying MCP traffic')
+  ..addOption('ble-notify-uuid',
+      help: 'BLE GATT notify characteristic UUID (peripheral → host)')
+  ..addOption('ble-write-uuid',
+      help: 'BLE GATT write characteristic UUID (host → peripheral)')
+
+  // ---- Logging / misc ----
+  ..addOption('log-to-file',
+      help: 'Log to file in addition to stderr (true | false)',
+      defaultsTo: 'false')
+  ..addOption('log-dir',
+      help: 'Directory for log files (default: current directory)')
+  ..addFlag('verbose',
+      abbr: 'v', help: 'Enable verbose logging', negatable: false)
+  ..addFlag('help', abbr: 'h', help: 'Show help', negatable: false);
+
 Future<McpBridgeConfig> _loadConfigFromFile(String path) async {
   final configFile = File(path);
   if (!await configFile.exists()) {
     throw FileSystemException('Configuration file not found: $path');
   }
-
   logInfo('Loading from configuration file: $path');
-  final jsonStr = await configFile.readAsString();
-  final json = jsonDecode(jsonStr);
+  final json = jsonDecode(await configFile.readAsString());
   return McpBridgeConfig.fromJson(json);
 }
 
 McpBridgeConfig _createConfigFromArgs(ArgResults args) {
   final serverType = args['server-type'] as String;
   final clientType = args['client-type'] as String;
-  final serverActionStr = args['server-action'] as String;
-  final authToken =
-  args['auth-token'] as String?; // Get authentication token value
+  if (!_knownTypes.contains(serverType)) {
+    throw ArgumentError(
+        'Unknown --server-type "$serverType". Known: ${_knownTypes.join(", ")}');
+  }
+  if (!_knownTypes.contains(clientType)) {
+    throw ArgumentError(
+        'Unknown --client-type "$clientType". Known: ${_knownTypes.join(", ")}');
+  }
 
-  // Determine server action mode (existing code)
+  final serverConfig = _buildTransportConfig(args, serverType, side: 'server');
+  final clientConfig = _buildTransportConfig(args, clientType, side: 'client');
+
+  // Server shutdown behavior. STDIO server always uses shutdownBridge —
+  // the spawning controller can't really keep the bridge alive past
+  // the subprocess exit.
   ServerShutdownBehavior serverAction;
-  if (serverType.toLowerCase() == 'stdio') {
-    // STDIO server always uses shutdownBridge mode (because client controls it)
+  final actionStr = (args['server-action'] as String).toLowerCase();
+  if (serverType == 'stdio') {
     serverAction = ServerShutdownBehavior.shutdownBridge;
-    if (serverActionStr.toLowerCase() == 'waitreconnect') {
+    if (actionStr == 'waitreconnect') {
       logWarning(
-          'STDIO server does not support wait for reconnection mode. Setting to shutdownBridge mode.');
+          'STDIO server cannot waitForReconnection — falling back to shutdownBridge.');
     }
   } else {
-    // SSE server determined by configuration
-    serverAction = serverActionStr.toLowerCase() == 'waitreconnect'
+    serverAction = actionStr == 'waitreconnect'
         ? ServerShutdownBehavior.waitForReconnection
         : ServerShutdownBehavior.shutdownBridge;
-  }
-
-  // Server configuration
-  final serverConfig = <String, dynamic>{};
-  if (serverType.toLowerCase() == 'sse') {
-    final port = int.tryParse(args['port'] as String) ?? 8080;
-    serverConfig['port'] = port;
-    serverConfig['endpoint'] = '/sse';
-    serverConfig['messagesEndpoint'] =
-    '/message'; // Changed '/messages' to '/message'
-
-    // Add SSE server authentication token configuration
-    if (authToken != null) {
-      serverConfig['authToken'] = authToken;
-      logInfo('Authentication token has been set for SSE server.');
-    }
-  }
-
-  // Client configuration
-  final clientConfig = <String, dynamic>{};
-  if (clientType.toLowerCase() == 'stdio') {
-    final command = args['command'] as String?;
-    if (command == null) {
-      throw ArgumentError('stdio client requires command argument');
-    }
-    clientConfig['command'] = command;
-
-    // Process command arguments
-    if (args['arguments'] != null) {
-      final argsStr = args['arguments'] as String;
-      final argsList = argsStr.split(',').map((e) => e.trim()).toList();
-      clientConfig['arguments'] = argsList;
-    }
-
-    // Process working directory
-    if (args['working-dir'] != null) {
-      clientConfig['workingDirectory'] = args['working-dir'] as String;
-    }
-  } else if (clientType.toLowerCase() == 'sse') {
-    final serverUrl = args['server-url'] as String?;
-    if (serverUrl == null) {
-      throw ArgumentError('sse client requires server-url argument');
-    }
-    clientConfig['serverUrl'] = serverUrl;
-
-    // Add SSE client authentication header
-    if (authToken != null) {
-      clientConfig['headers'] = {'Authorization': 'Bearer $authToken'};
-      logInfo('Authentication token header has been set for SSE client.');
-    }
   }
 
   return McpBridgeConfig(
@@ -186,56 +191,167 @@ McpBridgeConfig _createConfigFromArgs(ArgResults args) {
   );
 }
 
+Map<String, dynamic> _buildTransportConfig(
+    ArgResults args, String type, {required String side}) {
+  final isServer = side == 'server';
+  switch (type) {
+    case 'stdio':
+      if (isServer) return const {};
+      final command = args['command'] as String?;
+      if (command == null) {
+        throw ArgumentError(
+            'stdio client requires --command (path to subprocess)');
+      }
+      return {
+        'command': command,
+        if (args['arguments'] != null)
+          'arguments': (args['arguments'] as String)
+              .split(',')
+              .map((e) => e.trim())
+              .toList(),
+        if (args['working-dir'] != null)
+          'workingDirectory': args['working-dir'],
+      };
+
+    case 'sse':
+      final auth = args['auth-token'] as String?;
+      if (isServer) {
+        return {
+          'host': args['listen-host'],
+          'port': int.parse(args['listen-port'] as String),
+          'endpoint': '/sse',
+          'messagesEndpoint': '/message',
+          if (auth != null) 'authToken': auth,
+        };
+      }
+      final url = args['target-url'] as String? ??
+          'http://${args['listen-host']}:${args['listen-port']}/sse';
+      return {
+        'serverUrl': url,
+        if (auth != null) 'headers': {'Authorization': 'Bearer $auth'},
+      };
+
+    case 'streamableHttp':
+      final auth = args['auth-token'] as String?;
+      if (isServer) {
+        return {
+          'host': args['listen-host'],
+          'port': int.parse(args['listen-port'] as String),
+          'endpoint': '/mcp',
+          'messagesEndpoint': '/messages',
+          if (auth != null) 'authToken': auth,
+        };
+      }
+      final url = args['target-url'] as String? ??
+          'http://${args['listen-host']}:${args['listen-port']}/mcp';
+      return {
+        'baseUrl': url,
+        if (auth != null) 'headers': {'Authorization': 'Bearer $auth'},
+      };
+
+    case 'websocket':
+      final auth = args['auth-token'] as String?;
+      if (isServer) {
+        return {
+          'host': args['listen-host'],
+          'port': int.parse(args['listen-port'] as String),
+          'path': args['ws-path'],
+          if (auth != null) 'authToken': auth,
+        };
+      }
+      final url = args['target-url'] as String? ??
+          'ws://${args['listen-host']}:${args['listen-port']}'
+              '${args['ws-path']}';
+      return {
+        'url': url,
+        if (auth != null) 'headers': {'Authorization': 'Bearer $auth'},
+      };
+
+    case 'tcp':
+      if (isServer) {
+        return {
+          'host': args['listen-host'],
+          'port': int.parse(args['listen-port'] as String),
+        };
+      }
+      final host = args['tcp-host'] as String?;
+      final portStr = args['tcp-port'] as String?;
+      if (host == null || portStr == null) {
+        throw ArgumentError('tcp client requires --tcp-host and --tcp-port');
+      }
+      return {'host': host, 'port': int.parse(portStr)};
+
+    case 'serial':
+      final port = args['serial-port'] as String?;
+      if (port == null) {
+        throw ArgumentError(
+            'serial transport requires --serial-port (e.g. /dev/ttyACM0)');
+      }
+      return {
+        'port': port,
+        'baudRate': int.parse(args['serial-baud'] as String),
+      };
+
+    case 'usb':
+      final vendor = args['usb-vendor'] as String?;
+      final product = args['usb-product'] as String?;
+      final inEp = args['usb-in-endpoint'] as String?;
+      final outEp = args['usb-out-endpoint'] as String?;
+      if (vendor == null || product == null || inEp == null || outEp == null) {
+        throw ArgumentError(
+            'usb transport requires --usb-vendor / --usb-product / '
+            '--usb-in-endpoint / --usb-out-endpoint');
+      }
+      return {
+        'vendorId': _parseHexOrInt(vendor),
+        'productId': _parseHexOrInt(product),
+        'interface': int.parse(args['usb-interface'] as String),
+        'inEndpoint': _parseHexOrInt(inEp),
+        'outEndpoint': _parseHexOrInt(outEp),
+      };
+
+    case 'ble':
+      final addr = args['ble-address'] as String?;
+      final svc = args['ble-service-uuid'] as String?;
+      final notify = args['ble-notify-uuid'] as String?;
+      final write = args['ble-write-uuid'] as String?;
+      if (addr == null || svc == null || notify == null || write == null) {
+        throw ArgumentError(
+            'ble transport requires --ble-address / --ble-service-uuid / '
+            '--ble-notify-uuid / --ble-write-uuid');
+      }
+      return {
+        'deviceAddress': addr,
+        'serviceUuid': svc,
+        'notifyCharUuid': notify,
+        'writeCharUuid': write,
+      };
+
+    default:
+      throw ArgumentError('unsupported transport type: $type');
+  }
+}
+
+int _parseHexOrInt(String v) {
+  final s = v.toLowerCase();
+  if (s.startsWith('0x')) return int.parse(s.substring(2), radix: 16);
+  return int.parse(s);
+}
+
 Future<void> runBridge(McpBridgeConfig config) async {
-  logInfo('Starting MCP Bridge');
-  logInfo(
-      'Server type: ${config.serverTransportType}, Client type: ${config.clientTransportType}');
-  logInfo('Server shutdown behavior: ${config.serverShutdownBehavior}');
-
-  // Check configuration
-  if (config.clientTransportType.toLowerCase() == 'stdio') {
-    logInfo('STDIO client command: ${config.clientConfig['command']}');
-    if (config.clientConfig.containsKey('arguments')) {
-      logInfo('STDIO client arguments: ${config.clientConfig['arguments']}');
-    }
-  } else if (config.clientTransportType.toLowerCase() == 'sse') {
-    logInfo('SSE client server URL: ${config.clientConfig['serverUrl']}');
-    // Log authentication header presence
-    if (config.clientConfig.containsKey('headers')) {
-      logInfo('SSE client authentication header has been set.');
-    } else {
-      logWarning('SSE client authentication header has not been set.');
-    }
-  }
-
-  if (config.serverTransportType.toLowerCase() == 'sse') {
-    logInfo('SSE server port: ${config.serverConfig['port']}');
-    logInfo('SSE server endpoint: ${config.serverConfig['endpoint']}');
-    logInfo(
-        'SSE server message endpoint: ${config.serverConfig['messagesEndpoint']}');
-    // Log authentication token presence
-    if (config.serverConfig.containsKey('authToken')) {
-      logInfo('SSE server authentication token has been set.');
-    } else {
-      logWarning('SSE server authentication token has not been set.');
-    }
-  }
+  logInfo('Starting MCP Bridge: '
+      '${config.serverTransportType} <=> ${config.clientTransportType} '
+      '(${config.serverShutdownBehavior.name})');
 
   final bridge = McpBridge(config);
-
-  // Configure client auto-reconnect
   bridge.setAutoReconnect(enabled: true);
 
-  // Configure options for SSE server & wait for reconnection mode
-  if (config.serverTransportType.toLowerCase() == 'sse' &&
-      config.serverShutdownBehavior ==
-          ServerShutdownBehavior.waitForReconnection) {
+  if (config.serverShutdownBehavior ==
+      ServerShutdownBehavior.waitForReconnection) {
     bridge.setServerReconnectionOptions(
-      maxAttempts: 0, // Unlimited retry
+      maxAttempts: 0,
       checkInterval: Duration(seconds: 10),
     );
-
-    // Server reconnection callback
     bridge.onServerReconnectRequested = () async {
       logInfo('Attempting server reconnection...');
       await Future.delayed(Duration(seconds: 3));
@@ -243,51 +359,28 @@ Future<void> runBridge(McpBridgeConfig config) async {
     };
   }
 
-  // Register event handlers
   bridge.onTransportError = (source, error, stackTrace) {
-    logError('Error occurred in ${source.name}: $error');
+    logError('Error in ${source.name}: $error');
   };
-
   bridge.onTransportClosed = (source) {
-    logInfo('${source.name} connection closed');
-
-    if (source == TransportSource.server) {
-      if (config.serverTransportType.toLowerCase() == 'sse' &&
-          config.serverShutdownBehavior ==
-              ServerShutdownBehavior.waitForReconnection) {
-        logInfo(
-            'SSE server connection has been closed. Waiting for server reconnection.');
-        // Handled internally (in McpBridge._handleServerDisconnection method)
-      } else {
-        logInfo('Server has terminated, so the bridge will also terminate.');
-        // Shutdown is not necessary - handled automatically by internal logic
-      }
-    } else {
-      logInfo(
-          'Client connection has been lost. Will attempt reconnection while server is active.');
-      // Client auto-reconnection is handled by internal logic
-    }
+    logInfo('${source.name} closed');
   };
-
   bridge.onTransportReconnected = (source) {
-    logInfo('${source.name} reconnection successful');
+    logInfo('${source.name} reconnected');
   };
 
   try {
-    // Initialize bridge
     await bridge.initialize();
-    logInfo('Bridge initialization complete');
+    logInfo('Bridge initialized');
 
-    // Handle termination signals
     final completer = Completer<void>();
-
     ProcessSignal.sigint.watch().listen((_) async {
-      logInfo('User termination signal received. Shutting down...');
+      logInfo('SIGINT received — shutting down');
       await bridge.shutdown();
       completer.complete();
     });
 
-    logInfo('Bridge is running.');
+    logInfo('Bridge is running. Ctrl-C to exit.');
     await completer.future;
   } catch (e) {
     logError('Failed to initialize bridge: $e');
@@ -301,124 +394,130 @@ Future<void> runBridge(McpBridgeConfig config) async {
 }
 
 void _printUsage(ArgParser parser) {
-  logInfo('MCP Bridge Test Application');
-  logInfo('');
-  logInfo('Usage:');
-  logInfo(
-      '  dart mcp_test_app.dart --server-type=sse --client-type=stdio --command="python" --arguments="client.py,arg1,arg2" [options]');
-  logInfo('  dart mcp_test_app.dart --config-file=config.json');
-  logInfo('');
-  logInfo('Options:');
-  logInfo(parser.usage);
-  logInfo('');
-  logInfo('Logging Options:');
-  logInfo('  --log-to-file=[true|false]   Enable or disable logging to file (default: false)');
-  logInfo('  --log-dir=PATH               Directory to store log files (default: current directory)');
-  logInfo('');
-  logInfo('Examples:');
-  logInfo(
-      '  dart mcp_test_app.dart --server-type=stdio --client-type=sse --server-url="http://localhost:8080/sse"');
-  logInfo(
-      '  dart mcp_test_app.dart --server-type=sse --client-type=stdio --command="python" --arguments="mcp_client.py" --server-action=waitreconnect');
-  logInfo(
-      '  dart mcp_test_app.dart --server-type=sse --client-type=stdio --command="python" --arguments="mcp_client.py" --auth-token="test_token"');
-  logInfo(
-      '  dart mcp_test_app.dart --server-type=stdio --client-type=sse --server-url="http://localhost:8080/sse" --auth-token="test_token"');
-  logInfo('  dart mcp_test_app.dart --config-file=config.json');
-  logInfo('');
-  logInfo('Logging Examples:');
-  logInfo('  dart mcp_test_app.dart --log-to-file=false --server-type=stdio --client-type=sse --server-url="http://localhost:8080/sse"');
-  logInfo('  dart mcp_test_app.dart --log-dir=/tmp --server-type=sse --client-type=stdio --command="python"');
+  // Tool-level help goes to stdout (user-facing), not the log stream.
+  final out = StringBuffer()
+    ..writeln('MCP Bridge Test Application')
+    ..writeln('')
+    ..writeln('Usage:')
+    ..writeln('  dart example/mcp_bridge_example.dart \\')
+    ..writeln('       --server-type=<type> --client-type=<type> [transport options]')
+    ..writeln('  dart example/mcp_bridge_example.dart --config-file=path.json')
+    ..writeln('')
+    ..writeln('Transport types: ${_knownTypes.join(", ")}')
+    ..writeln('')
+    ..writeln('Options:')
+    ..writeln(parser.usage)
+    ..writeln('')
+    ..writeln('Examples:')
+    ..writeln('')
+    ..writeln('  # STDIO subprocess server <-> SSE client')
+    ..writeln('  dart example/mcp_bridge_example.dart \\')
+    ..writeln('       --server-type=stdio --client-type=sse \\')
+    ..writeln('       --target-url="http://localhost:8080/sse"')
+    ..writeln('')
+    ..writeln('  # SSE listener server <-> STDIO subprocess client')
+    ..writeln('  dart example/mcp_bridge_example.dart \\')
+    ..writeln('       --server-type=sse --client-type=stdio \\')
+    ..writeln('       --listen-port=8999 --command=python --arguments=mcp_server.py')
+    ..writeln('')
+    ..writeln('  # WebSocket listener <-> Streamable HTTP client')
+    ..writeln('  dart example/mcp_bridge_example.dart \\')
+    ..writeln('       --server-type=websocket --client-type=streamableHttp \\')
+    ..writeln('       --listen-port=9000 --target-url=https://example.com/mcp')
+    ..writeln('')
+    ..writeln('  # TCP listener <-> TCP target')
+    ..writeln('  dart example/mcp_bridge_example.dart \\')
+    ..writeln('       --server-type=tcp --client-type=tcp \\')
+    ..writeln('       --listen-port=9001 --tcp-host=10.0.0.5 --tcp-port=9100')
+    ..writeln('')
+    ..writeln('  # Serial-port-attached MCP device <-> Streamable HTTP exposure')
+    ..writeln('  dart example/mcp_bridge_example.dart \\')
+    ..writeln('       --server-type=streamableHttp --client-type=serial \\')
+    ..writeln('       --listen-port=8080 --serial-port=/dev/ttyUSB0 --serial-baud=115200')
+    ..writeln('')
+    ..writeln('  # USB-attached vendor device <-> WebSocket exposure')
+    ..writeln('  dart example/mcp_bridge_example.dart \\')
+    ..writeln('       --server-type=websocket --client-type=usb \\')
+    ..writeln('       --listen-port=9000 \\')
+    ..writeln('       --usb-vendor=0x1234 --usb-product=0x5678 \\')
+    ..writeln('       --usb-in-endpoint=0x81 --usb-out-endpoint=0x01')
+    ..writeln('')
+    ..writeln('  # BLE peripheral (Linux only) <-> Streamable HTTP exposure')
+    ..writeln('  dart example/mcp_bridge_example.dart \\')
+    ..writeln('       --server-type=streamableHttp --client-type=ble \\')
+    ..writeln('       --listen-port=8080 \\')
+    ..writeln('       --ble-address=AA:BB:CC:DD:EE:FF \\')
+    ..writeln('       --ble-service-uuid=0000abcd-... \\')
+    ..writeln('       --ble-notify-uuid=0000abce-... \\')
+    ..writeln('       --ble-write-uuid=0000abcf-...')
+    ..writeln('')
+    ..writeln('  # Load from JSON config')
+    ..writeln('  dart example/mcp_bridge_example.dart --config-file=bridge.json');
+  stdout.write(out.toString());
 }
 
-// Logging setup function
-void setupLogging({bool logToFile = true, String? logDirectory}) {
-  Logger.getLogger('mcp_bridge').setLevel(LogLevel.debug);
-  // Basic logging configuration
-  _logger.configure(
-      level: LogLevel.debug, includeTimestamp: true, useColor: true);
+// Logging setup. Wires `package:logging`'s root onRecord stream to
+// stderr (and optionally to a file) since `package:logging` is just a
+// record stream — output is the consumer's job.
+StreamSubscription<LogRecord>? _stderrSub;
 
-  // Skip log file creation if file logging is disabled
+void setupLogging({bool logToFile = true, String? logDirectory}) {
+  hierarchicalLoggingEnabled = true;
+  Logger.root.level = Level.FINE;
+  Logger('mcp_bridge').level = Level.FINE;
+
+  _stderrSub?.cancel();
+  _stderrSub = Logger.root.onRecord.listen((rec) {
+    stderr.writeln(
+        '[${rec.time}] [${rec.level.name}] [${rec.loggerName}] ${rec.message}');
+  });
+
   if (!logToFile) {
-    logInfo("File logging disabled");
+    logInfo('File logging disabled');
     return;
   }
 
-  // Set log directory - use default or specified directory
   final logDir = logDirectory ?? Directory.current.path;
-
   try {
-    // Check if log directory exists and create if necessary
     final logDirObj = Directory(logDir);
-    if (!logDirObj.existsSync()) {
-      logDirObj.createSync(recursive: true);
-    }
-
-    // Create log file
+    if (!logDirObj.existsSync()) logDirObj.createSync(recursive: true);
     final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-');
     detailedLogFile = File('$logDir/mcp_bridge_$timestamp.log');
     logSink = detailedLogFile.openWrite(mode: FileMode.append);
-
-    logInfo("Log file created: ${detailedLogFile.path}");
+    logInfo('Log file created: ${detailedLogFile.path}');
   } catch (e) {
-    _logger.error("Failed to create log file: $e. File logging disabled.");
-    // Use only console logging if file logging fails
+    _logger.severe('Failed to create log file: $e. File logging disabled.');
     logToFile = false;
   }
 }
 
 void logInfo(String message) {
-  // Console logging
   _logger.info(message);
-
-  try {
-    final timestamp = DateTime.now().toIso8601String();
-    logSink.writeln("$timestamp INFO: $message");
-  } catch (e) {
-    // Ignore log file write errors
-  }
+  _writeFile('INFO', message);
 }
 
 void logDebug(String message) {
-  // Console logging
-  _logger.debug(message);
-
-  try {
-    final timestamp = DateTime.now().toIso8601String();
-    logSink.writeln("$timestamp DEBUG: $message");
-  } catch (e) {
-    // Ignore log file write errors
-  }
+  _logger.fine(message);
+  _writeFile('DEBUG', message);
 }
 
 void logWarning(String message) {
-  // Console logging
   _logger.warning(message);
-
-  try {
-    final timestamp = DateTime.now().toIso8601String();
-    logSink.writeln("$timestamp WARNING: $message");
-  } catch (e) {
-    // Ignore log file write errors
-  }
+  _writeFile('WARNING', message);
 }
 
 void logError(String message, [Object? error, StackTrace? stackTrace]) {
-  // Console logging
-  _logger.error(message);
+  _logger.severe(message);
+  _writeFile('ERROR', message);
+  if (error != null) _writeFile('ERROR DETAIL', '$error');
+  if (stackTrace != null) _writeFile('STACK TRACE', '$stackTrace');
+}
 
+void _writeFile(String level, String message) {
   try {
     final timestamp = DateTime.now().toIso8601String();
-    logSink.writeln("$timestamp ERROR: $message");
-
-    if (error != null) {
-      logSink.writeln("$timestamp ERROR DETAIL: $error");
-    }
-
-    if (stackTrace != null) {
-      logSink.writeln("$timestamp STACK TRACE: $stackTrace");
-    }
-  } catch (e) {
-    // Ignore log file write errors
+    logSink.writeln('$timestamp $level: $message');
+  } catch (_) {
+    // File logging not initialized or write failed — ignore.
   }
 }
