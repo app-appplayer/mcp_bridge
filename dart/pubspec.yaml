@@ -1,6 +1,6 @@
 name: mcp_bridge
 description: MCP bridge with built-in transport zoo — bridges JSON-RPC between any two of stdio, sse, streamableHttp, websocket, tcp, serial, usb, ble. Aligned with the MCP 2.0 wave.
-version: 0.2.0-rc.1
+version: 0.2.0-rc.2
 homepage: https://github.com/app-appplayer/mcp_bridge
 repository: https://github.com/app-appplayer/mcp_bridge
 issue_tracker: https://github.com/app-appplayer/mcp_bridge/issues

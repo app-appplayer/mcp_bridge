@@ -1,3 +1,28 @@
+## 0.2.0-rc.2
+
+### Added
+- Extension transport exports — the barrel (`lib/mcp_bridge.dart`) now
+  re-exports the 10 transport implementation classes directly so hosts can
+  inject them without reaching into `src/`:
+  `TcpClientTransport`, `TcpServerTransport`,
+  `WebSocketClientTransport`, `WebSocketServerTransport`,
+  `SerialClientTransport`, `SerialServerTransport`,
+  `UsbClientTransport`, `UsbServerTransport`,
+  `BleClientTransport`, `BleServerTransport`.
+  These are the types passed to `McpClientKernelHost.connectWith` (brain_kernel
+  0.1.2) when a host builds an extension-transport connection.
+
+### Changed
+- Library doc comment updated to reflect the package's role as the
+  opt-in extension-transport home (FFI / platform deps kept out of
+  `mcp_client` / `mcp_server` core).
+
+### Backward compatibility
+- Fully additive. No existing `McpBridge`, `McpBridgeConfig`, or callback
+  surface changed.
+
+---
+
 ## 0.2.0-rc.1
 
 Pre-release candidate. Hardware transports (`'serial'`, `'usb'`, `'ble'`)
