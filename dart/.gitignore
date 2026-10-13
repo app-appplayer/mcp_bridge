@@ -8,3 +8,4 @@ pubspec.lock
 
 # Coverage artifacts (regenerated locally, not in git).
 coverage/
+.cov/

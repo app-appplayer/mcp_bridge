@@ -1,3 +1,12 @@
+## 0.2.0-rc.3
+
+### Changed
+- Requires `mcp_client` and `mcp_server` 3.0.0 (full MCP 2024-11-05 through
+  2026-07-28). The bridge API is unchanged; a host on the 2.x packages moves
+  with them — see their `MIGRATION-3.0.md`.
+
+---
+
 ## 0.2.0-rc.2
 
 ### Added
